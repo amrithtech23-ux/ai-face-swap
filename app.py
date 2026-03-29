@@ -62,7 +62,6 @@ st.markdown('<p class="subtitle">Swap faces in photos instantly using advanced A
 # ================= HELPER FUNCTIONS =================
 def get_api_key():
     """Retrieve API key from multiple sources"""
-    # Priority: Session State > Secrets
     if st.session_state.get("replicate_api_key"):
         key = st.session_state.replicate_api_key.strip()
         return key
@@ -89,15 +88,14 @@ def encode_image_to_base64(image_path):
     """Encode image file to base64 data URI"""
     with open(image_path, "rb") as image_file:
         encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
-    # Determine mime type based on file extension
     if image_path.lower().endswith('.png'):
         mime_type = "image/png"
     else:
         mime_type = "image/jpeg"
-    return f"{mime_type};base64,{encoded_string}"
+    return f"data:{mime_type};base64,{encoded_string}"
 
 def run_face_swap_api(source_path, target_path, api_key):
-    """Call Replicate API with working faceswap model"""
+    """Call Replicate API with correct version format"""
     
     headers = {
         "Authorization": f"Token {api_key}",
@@ -108,14 +106,16 @@ def run_face_swap_api(source_path, target_path, api_key):
     source_uri = encode_image_to_base64(source_path)
     target_uri = encode_image_to_base64(target_path)
     
-    # Use roop-inswapper model (reliable and working)
+    # Use specific model version (roop-inswapper)
+    # Full format: owner/model:version_hash
+    model_version = "roop-inswapper/inswapper_128:cdcf4910f92b38e3a6a98b70446f26b601a2593b0e5ce2a5203e5e24e646f307"
+    
+    # 1. Create the prediction with VERSION (not model)
     payload = {
-        "model": "roop-inswapper/inswapper_128",
+        "version": model_version,
         "input": {
             "target_image": target_uri,
-            "swap_image": source_uri,
-            "face_index": 0,
-            "face_weight": 1.0
+            "swap_image": source_uri
         }
     }
     
@@ -131,11 +131,11 @@ def run_face_swap_api(source_path, target_path, api_key):
     prediction = response.json()
     prediction_url = prediction["urls"]["get"]
     
-    # Poll for results
+    # 2. Poll for results
     max_attempts = 30
     attempt = 0
     while prediction["status"] not in ["succeeded", "failed", "canceled"] and attempt < max_attempts:
-        time.sleep(2)  # Wait 2 seconds
+        time.sleep(2)
         attempt += 1
         response = requests.get(prediction_url, headers=headers)
         if response.status_code != 200:
@@ -153,18 +153,13 @@ def run_face_swap_api(source_path, target_path, api_key):
 with st.sidebar:
     st.markdown("### ⚙️ Settings")
     
-    # Check if API key is already in secrets
     api_key_from_secrets = st.secrets.get("REPLICATE_API_TOKEN")
     
     if api_key_from_secrets:
-        # Key is configured in secrets - just show confirmation
         st.success("✅ API Key configured from Secrets!")
         st.info("🔐 Using secure API key from app settings")
-        
-        # Store it in session state
         st.session_state.replicate_api_key = api_key_from_secrets.strip()
     else:
-        # No secret configured - show input field
         st.warning("⚠️ No API Key in Secrets")
         
         replicate_api_key = st.text_input(
@@ -178,13 +173,11 @@ with st.sidebar:
             st.session_state.replicate_api_key = replicate_api_key.strip()
             st.success("✅ API Key configured!")
     
-    # Show debug info if key exists
     current_key = st.session_state.get("replicate_api_key")
     if current_key:
         st.info(f"🔍 Key starts with: `{current_key[:10]}...`")
         st.info(f"🔍 Key length: {len(current_key)} chars")
         
-        # Test API key button
         if st.button("🔐 Test API Key"):
             with st.spinner("Testing API key..."):
                 is_valid, result = test_api_key(current_key)
@@ -197,7 +190,6 @@ with st.sidebar:
     
     st.markdown("---")
     
-    # Info Box
     st.markdown("""
     <div class="info-box">
     <strong>📌 How to Use:</strong>
@@ -290,7 +282,6 @@ if swap_btn:
                 
                 # Download result
                 if result_url:
-                    # Handle both single URL and list of URLs
                     if isinstance(result_url, list):
                         result_url = result_url[0]
                     
@@ -315,21 +306,17 @@ if swap_btn:
                     st.error("🔑 Please check your API key is correct")
                 elif "credit" in str(e).lower():
                     st.error("💳 Insufficient credits. Please add credits to your Replicate account.")
-                elif "permission" in str(e).lower() or "version" in str(e).lower():
-                    st.error("🔧 Model access issue. Try a different model or check Replicate permissions.")
 
 # ================= DISPLAY RESULT =================
 if 'swap_result' in st.session_state and st.session_state.swap_result.get('success'):
     st.markdown("---")
     st.markdown('<div class="success-box"><h3>🎉 Face Swap Complete!</h3><p>Your face swap has been processed successfully!</p></div>', unsafe_allow_html=True)
     
-    # Display result
     st.markdown("### 🎨 Result")
     st.image(st.session_state.swap_result['image'], 
              caption="Swapped Face Result", 
              use_container_width=True)
     
-    # Download button
     result_bytes = BytesIO()
     st.session_state.swap_result['image'].save(result_bytes, format="PNG")
     st.download_button(
@@ -340,7 +327,6 @@ if 'swap_result' in st.session_state and st.session_state.swap_result.get('succe
         use_container_width=True
     )
     
-    # Display comparison
     st.markdown("---")
     st.markdown("### 📸 Before & After Comparison")
     col1, col2, col3 = st.columns(3)
