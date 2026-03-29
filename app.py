@@ -97,10 +97,7 @@ def encode_image_to_base64(image_path):
     return f"{mime_type};base64,{encoded_string}"
 
 def run_face_swap_api(source_path, target_path, api_key):
-    """Call Replicate API directly using requests with proper file handling"""
-    
-    # Using a stable faceswap model on Replicate (lucataco/faceswap)
-    model_version = "9a4298548422074c3f57258c5d544497314ae4112df7870ca4211c7c9c3dd90d"
+    """Call Replicate API with working faceswap model"""
     
     headers = {
         "Authorization": f"Token {api_key}",
@@ -111,12 +108,14 @@ def run_face_swap_api(source_path, target_path, api_key):
     source_uri = encode_image_to_base64(source_path)
     target_uri = encode_image_to_base64(target_path)
     
-    # 1. Create the prediction
+    # Use roop-inswapper model (reliable and working)
     payload = {
-        "version": model_version,
+        "model": "roop-inswapper/inswapper_128",
         "input": {
             "target_image": target_uri,
-            "swap_image": source_uri
+            "swap_image": source_uri,
+            "face_index": 0,
+            "face_weight": 1.0
         }
     }
     
@@ -132,7 +131,7 @@ def run_face_swap_api(source_path, target_path, api_key):
     prediction = response.json()
     prediction_url = prediction["urls"]["get"]
     
-    # 2. Poll for results
+    # Poll for results
     max_attempts = 30
     attempt = 0
     while prediction["status"] not in ["succeeded", "failed", "canceled"] and attempt < max_attempts:
@@ -316,6 +315,8 @@ if swap_btn:
                     st.error("🔑 Please check your API key is correct")
                 elif "credit" in str(e).lower():
                     st.error("💳 Insufficient credits. Please add credits to your Replicate account.")
+                elif "permission" in str(e).lower() or "version" in str(e).lower():
+                    st.error("🔧 Model access issue. Try a different model or check Replicate permissions.")
 
 # ================= DISPLAY RESULT =================
 if 'swap_result' in st.session_state and st.session_state.swap_result.get('success'):
