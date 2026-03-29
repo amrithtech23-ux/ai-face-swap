@@ -7,9 +7,6 @@ from PIL import Image
 import base64
 import requests
 
-# Get API key from Streamlit Cloud Secrets
-API_KEY = st.secrets.get("OPENROUTER_API_KEY")
-
 # ================= CONFIGURATION =================
 st.set_page_config(
     page_title="AI Powered Face Swap",
@@ -75,22 +72,44 @@ st.markdown("""
 st.markdown('<h1 class="main-title">🎭 AI Powered Face Swap</h1>', unsafe_allow_html=True)
 st.markdown('<p class="subtitle">Swap faces in photos instantly using advanced AI technology | Powered by OpenRouter AI</p>', unsafe_allow_html=True)
 
+# ================= HELPER FUNCTION: GET API KEY =================
+def get_api_key():
+    """Retrieve API key from multiple sources with priority order"""
+    # Priority: 1. User input in sidebar → 2. Streamlit Secrets → 3. Session State
+    if st.session_state.get("api_key_input"):
+        return st.session_state.api_key_input
+    if st.secrets.get("OPENROUTER_API_KEY"):
+        return st.secrets["OPENROUTER_API_KEY"]
+    if st.session_state.get("api_key"):
+        return st.session_state.api_key
+    return None
+
 # ================= SIDEBAR =================
 with st.sidebar:
     st.markdown("### ⚙️ Settings")
     
+    # Check for API key from Streamlit Secrets
+    api_key_from_secrets = st.secrets.get("OPENROUTER_API_KEY")
+    
     # API Key Configuration
-    api_key = st.text_input(
+    api_key_input = st.text_input(
         "🔑 OpenRouter API Key",
         type="password",
         help="Get your API key from https://openrouter.ai/keys",
-        key="api_key_input"
+        key="api_key_input",
+        value=api_key_from_secrets if api_key_from_secrets else ""
     )
     
-    if api_key:
-        st.session_state.api_key = api_key
-        st.success("✅ API Key configured!")
-    elif 'api_key' in st.session_state:
+    # Set API key in session state from any source
+    current_api_key = get_api_key()
+    
+    if api_key_input:
+        st.session_state.api_key = api_key_input
+        st.success("✅ API Key configured from input!")
+    elif api_key_from_secrets:
+        st.session_state.api_key = api_key_from_secrets
+        st.success("✅ API Key loaded from Streamlit Secrets!")
+    elif st.session_state.get("api_key"):
         st.success("✅ API Key loaded from session!")
     else:
         st.warning("⚠️ Please add your API Key")
@@ -169,7 +188,9 @@ with col2:
 
 # ================= PROCESS FACE SWAP =================
 if swap_btn:
-    if 'api_key' not in st.session_state:
+    current_api_key = get_api_key()
+    
+    if not current_api_key:
         st.error("❌ Please add your OpenRouter API Key in the sidebar first!")
     elif source_file is None or target_file is None:
         st.warning("⚠️ Please upload both source and target images!")
@@ -186,10 +207,8 @@ if swap_btn:
                     tgt_path = tgt_tmp.name
                 
                 # Call OpenRouter API for face swap guidance
-                # Note: For actual face swap, you'd need a dedicated face swap API
-                # This is a demonstration using AI to provide guidance
                 headers = {
-                    "Authorization": f"Bearer {st.session_state.api_key}",
+                    "Authorization": f"Bearer {current_api_key}",
                     "Content-Type": "application/json",
                     "HTTP-Referer": "https://github.com/yourusername/ai-face-swap",
                     "X-Title": "AI Face Swap"
@@ -223,10 +242,7 @@ if swap_btn:
                 
                 analysis = response.json()['choices'][0]['message']['content']
                 
-                # For actual face swap, integrate with a face swap API
-                # Example: Replicate, DeepSwap, or local insightface model
-                # This demo shows the structure
-                
+                # Store result
                 st.session_state.swap_result = {
                     "analysis": analysis,
                     "success": True,
@@ -240,12 +256,12 @@ if swap_btn:
             except requests.exceptions.Timeout:
                 st.error("⏱️ Timeout: API request took too long. Please try again.")
             except requests.exceptions.HTTPError as e:
-                if response.status_code == 401:
+                if response is not None and response.status_code == 401:
                     st.error("🔑 Authentication failed. Check your OpenRouter API key.")
-                elif response.status_code == 429:
+                elif response is not None and response.status_code == 429:
                     st.error("⚠️ Rate limit exceeded. Please wait and try again.")
                 else:
-                    st.error(f"❌ HTTP Error {response.status_code}: {str(e)}")
+                    st.error(f"❌ HTTP Error: {str(e)}")
             except Exception as e:
                 st.error(f"❌ Error: {str(e)}")
 
