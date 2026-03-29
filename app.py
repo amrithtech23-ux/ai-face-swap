@@ -3,6 +3,7 @@ import os
 import tempfile
 import requests
 import time
+import base64
 from PIL import Image
 from io import BytesIO
 
@@ -44,6 +45,13 @@ st.markdown("""
     padding: 15px !important;
     margin: 20px 0 !important;
 }
+.error-box {
+    background-color: #f8d7da !important;
+    border-left: 5px solid #dc3545 !important;
+    border-radius: 8px !important;
+    padding: 15px !important;
+    margin: 20px 0 !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -60,26 +68,38 @@ def get_api_key():
         return st.secrets["REPLICATE_API_TOKEN"]
     return None
 
+def encode_image_to_base64(image_path):
+    """Encode image file to base64 data URI"""
+    with open(image_path, "rb") as image_file:
+        encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
+    # Determine mime type based on file extension
+    if image_path.lower().endswith('.png'):
+        mime_type = "image/png"
+    else:
+        mime_type = "image/jpeg"
+    return f"data:{mime_type};base64,{encoded_string}"
+
 def run_face_swap_api(source_path, target_path, api_key):
-    """Call Replicate API directly using requests"""
+    """Call Replicate API directly using requests with proper file handling"""
     
-    # Using a stable faceswap model on Replicate
-    # Model: lucataco/faceswap
+    # Using a stable faceswap model on Replicate (lucataco/faceswap)
     model_version = "9a4298548422074c3f57258c5d544497314ae4112df7870ca4211c7c9c3dd90d"
-    owner = "lucataco"
-    name = "faceswap"
     
     headers = {
         "Authorization": f"Token {api_key}",
         "Content-Type": "application/json"
     }
     
+    # Encode images to base64 data URIs
+    source_uri = encode_image_to_base64(source_path)
+    target_uri = encode_image_to_base64(target_path)
+    
     # 1. Create the prediction
     payload = {
         "version": model_version,
         "input": {
-            "target_image": open(target_path, "rb"),
-            "swap_image": open(source_path, "rb")
+            "target_image": target_uri,
+            "swap_image": source_uri
         }
     }
     
@@ -96,8 +116,11 @@ def run_face_swap_api(source_path, target_path, api_key):
     prediction_url = prediction["urls"]["get"]
     
     # 2. Poll for results
-    while prediction["status"] not in ["succeeded", "failed", "canceled"]:
+    max_attempts = 30
+    attempt = 0
+    while prediction["status"] not in ["succeeded", "failed", "canceled"] and attempt < max_attempts:
         time.sleep(2)  # Wait 2 seconds
+        attempt += 1
         response = requests.get(prediction_url, headers=headers)
         if response.status_code != 200:
             raise Exception(f"Failed to check status: {response.text}")
@@ -105,8 +128,10 @@ def run_face_swap_api(source_path, target_path, api_key):
     
     if prediction["status"] == "succeeded":
         return prediction["output"]
-    else:
+    elif prediction["status"] == "failed":
         raise Exception(f"Prediction failed: {prediction.get('error', 'Unknown error')}")
+    else:
+        raise Exception("Prediction was canceled or timed out")
 
 # ================= SIDEBAR =================
 with st.sidebar:
@@ -149,6 +174,13 @@ with st.sidebar:
     """, unsafe_allow_html=True)
     
     st.markdown("---")
+    st.markdown("### 📊 Features")
+    st.markdown("- ✅ High-quality face detection")
+    st.markdown("- ✅ Realistic face swapping")
+    st.markdown("- ✅ Privacy-focused processing")
+    st.markdown("- ✅ Fast results")
+    
+    st.markdown("---")
     st.caption("☁️ Powered by Replicate AI")
 
 # ================= MAIN CONTENT =================
@@ -166,6 +198,7 @@ with col1:
     if source_file:
         source_image = Image.open(source_file).convert('RGB')
         st.image(source_image, caption="Source Image", use_container_width=True)
+        st.success(f"✅ Uploaded: {source_file.name}")
 
 with col2:
     st.markdown("### 🎯 Target Image (Face to Replace)")
@@ -179,6 +212,7 @@ with col2:
     if target_file:
         target_image = Image.open(target_file).convert('RGB')
         st.image(target_image, caption="Target Image", use_container_width=True)
+        st.success(f"✅ Uploaded: {target_file.name}")
 
 # ================= SWAP BUTTON =================
 st.markdown("---")
@@ -211,6 +245,10 @@ if swap_btn:
                 
                 # Download result
                 if result_url:
+                    # Handle both single URL and list of URLs
+                    if isinstance(result_url, list):
+                        result_url = result_url[0]
+                    
                     response = requests.get(result_url)
                     result_image = Image.open(BytesIO(response.content))
                     
@@ -222,7 +260,7 @@ if swap_btn:
                 else:
                     st.error("❌ No result received from API")
                 
-                # Clean up
+                # Clean up temp files
                 os.unlink(src_path)
                 os.unlink(tgt_path)
                 
@@ -230,11 +268,13 @@ if swap_btn:
                 st.error(f"❌ Error: {str(e)}")
                 if "authentication" in str(e).lower():
                     st.error("🔑 Please check your API key is correct")
+                elif "credit" in str(e).lower():
+                    st.error("💳 Insufficient credits. Please add credits to your Replicate account.")
 
 # ================= DISPLAY RESULT =================
 if 'swap_result' in st.session_state and st.session_state.swap_result.get('success'):
     st.markdown("---")
-    st.markdown('<div class="success-box"><h3>🎉 Face Swap Complete!</h3></div>', unsafe_allow_html=True)
+    st.markdown('<div class="success-box"><h3>🎉 Face Swap Complete!</h3><p>Your face swap has been processed successfully!</p></div>', unsafe_allow_html=True)
     
     # Display result
     st.markdown("### 🎨 Result")
@@ -243,12 +283,41 @@ if 'swap_result' in st.session_state and st.session_state.swap_result.get('succe
              use_container_width=True)
     
     # Download button
-    buf = BytesIO()
-    st.session_state.swap_result['image'].save(buf, format="PNG")
+    result_bytes = BytesIO()
+    st.session_state.swap_result['image'].save(result_bytes, format="PNG")
     st.download_button(
         label="📥 Download Swapped Image",
-        data=buf.getvalue(),
+        data=result_bytes.getvalue(),
         file_name="face_swap_result.png",
         mime="image/png",
         use_container_width=True
     )
+    
+    # Display comparison
+    st.markdown("---")
+    st.markdown("### 📸 Before & After Comparison")
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.image(source_image, caption="Source Face", use_container_width=True)
+    
+    with col2:
+        st.markdown("### ➡️")
+    
+    with col3:
+        st.image(target_image, caption="Target Image", use_container_width=True)
+    
+    st.markdown("### ⬇️")
+    st.image(st.session_state.swap_result['image'], 
+             caption="Final Result", 
+             use_container_width=True)
+
+# ================= FOOTER =================
+st.markdown("---")
+st.markdown("""
+<div style="text-align: center; color: #666; padding: 20px;">
+    <p><strong>🔒 Privacy Notice:</strong> Images are processed securely and not stored permanently.</p>
+    <p><strong>⚠️ Disclaimer:</strong> Use responsibly. Do not use for misleading or harmful purposes.</p>
+    <p>📄 MIT License | ☁️ Powered by Replicate AI</p>
+</div>
+""", unsafe_allow_html=True)
