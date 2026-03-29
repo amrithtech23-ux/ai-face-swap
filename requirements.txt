@@ -1,12 +1,2 @@
-# Core Streamlit
-streamlit==1.32.0
-
-# Image Processing (Cloud-Compatible)
-Pillow==10.2.0
-numpy==1.26.3
-
-# API Requests
-requests==2.31.0
-
-# OpenCV (Headless version for cloud)
-opencv-python-headless==4.9.0.80
+streamlit
+requests
