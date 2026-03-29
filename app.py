@@ -6,6 +6,8 @@ import tempfile
 from PIL import Image
 import base64
 import requests
+import replicate
+from io import BytesIO
 
 # ================= CONFIGURATION =================
 st.set_page_config(
@@ -31,32 +33,17 @@ st.markdown("""
     text-align: center !important;
     margin-bottom: 30px !important;
 }
-.upload-box {
-    border: 3px dashed #6C63FF !important;
-    border-radius: 15px !important;
-    padding: 30px !important;
-    text-align: center !important;
-    background-color: #f8f9fa !important;
-}
-.result-box {
+.result-image {
     border: 3px solid #6C63FF !important;
     border-radius: 15px !important;
-    padding: 20px !important;
-    background-color: #f8f9fa !important;
+    box-shadow: 0 4px 15px rgba(108, 99, 255, 0.3) !important;
 }
-.swap-btn {
-    background: linear-gradient(45deg, #6C63FF, #8B85FF) !important;
-    color: white !important;
-    font-weight: bold !important;
-    font-size: 1.2rem !important;
-    padding: 15px 40px !important;
-    border-radius: 10px !important;
-    border: none !important;
-}
-.swap-btn:hover {
-    background: linear-gradient(45deg, #8B85FF, #6C63FF) !important;
-    transform: translateY(-2px) !important;
-    box-shadow: 0 4px 15px rgba(108, 99, 255, 0.4) !important;
+.success-box {
+    background-color: #d4edda !important;
+    border-left: 5px solid #28a745 !important;
+    border-radius: 8px !important;
+    padding: 15px !important;
+    margin: 20px 0 !important;
 }
 .info-box {
     background-color: #e8f0fe !important;
@@ -70,57 +57,61 @@ st.markdown("""
 
 # ================= TITLE =================
 st.markdown('<h1 class="main-title">🎭 AI Powered Face Swap</h1>', unsafe_allow_html=True)
-st.markdown('<p class="subtitle">Swap faces in photos instantly using advanced AI technology | Powered by OpenRouter AI</p>', unsafe_allow_html=True)
+st.markdown('<p class="subtitle">Swap faces in photos instantly using advanced AI technology</p>', unsafe_allow_html=True)
 
-# ================= HELPER FUNCTION: GET API KEY =================
+# ================= HELPER FUNCTIONS =================
 def get_api_key():
-    """Retrieve API key from multiple sources with priority order"""
-    # Priority: 1. User input in sidebar → 2. Streamlit Secrets → 3. Session State
-    if st.session_state.get("api_key_input"):
-        return st.session_state.api_key_input
-    if st.secrets.get("OPENROUTER_API_KEY"):
-        return st.secrets["OPENROUTER_API_KEY"]
-    if st.session_state.get("api_key"):
-        return st.session_state.api_key
+    """Retrieve API key from multiple sources"""
+    if st.session_state.get("replicate_api_key"):
+        return st.session_state.replicate_api_key
+    if st.secrets.get("REPLICATE_API_TOKEN"):
+        return st.secrets["REPLICATE_API_TOKEN"]
     return None
+
+def image_to_bytes(image):
+    """Convert PIL Image to bytes"""
+    img_byte_arr = BytesIO()
+    image.save(img_byte_arr, format='PNG')
+    img_byte_arr = img_byte_arr.getvalue()
+    return img_byte_arr
+
+def base64_encode_image(image_path):
+    """Encode image to base64"""
+    with open(image_path, "rb") as image_file:
+        return base64.b64encode(image_file.read()).decode('utf-8')
 
 # ================= SIDEBAR =================
 with st.sidebar:
     st.markdown("### ⚙️ Settings")
     
-    # Check for API key from Streamlit Secrets
-    api_key_from_secrets = st.secrets.get("OPENROUTER_API_KEY")
-    
     # API Key Configuration
-    api_key_input = st.text_input(
-        "🔑 OpenRouter API Key",
+    api_key_from_secrets = st.secrets.get("REPLICATE_API_TOKEN")
+    
+    replicate_api_key = st.text_input(
+        "🔑 Replicate API Key",
         type="password",
-        help="Get your API key from https://openrouter.ai/keys",
-        key="api_key_input",
+        help="Get your API key from https://replicate.com/account/api-tokens",
+        key="replicate_api_key_input",
         value=api_key_from_secrets if api_key_from_secrets else ""
     )
     
-    # Set API key in session state from any source
-    current_api_key = get_api_key()
-    
-    if api_key_input:
-        st.session_state.api_key = api_key_input
-        st.success("✅ API Key configured from input!")
+    if replicate_api_key:
+        st.session_state.replicate_api_key = replicate_api_key
+        st.success("✅ API Key configured!")
     elif api_key_from_secrets:
-        st.session_state.api_key = api_key_from_secrets
-        st.success("✅ API Key loaded from Streamlit Secrets!")
-    elif st.session_state.get("api_key"):
-        st.success("✅ API Key loaded from session!")
+        st.session_state.replicate_api_key = api_key_from_secrets
+        st.success("✅ API Key loaded from Secrets!")
     else:
-        st.warning("⚠️ Please add your API Key")
+        st.warning("⚠️ Please add your Replicate API Key")
     
     st.markdown("---")
     
     # Model Selection
-    model = st.selectbox(
-        "🤖 AI Model",
-        ["qwen/qwen-2.5-72b-instruct", "meta-llama/llama-3.1-405b-instruct"],
-        index=0
+    model_version = st.selectbox(
+        "🤖 Face Swap Model",
+        ["inswapper_128", "simswap_256"],
+        index=0,
+        help="inswapper_128: Faster, good quality\nsimswap_256: Higher quality, slower"
     )
     
     st.markdown("---")
@@ -130,6 +121,7 @@ with st.sidebar:
     <div class="info-box">
     <strong>📌 How to Use:</strong>
     <ol>
+        <li>Add your Replicate API Key</li>
         <li>Upload source image (face to use)</li>
         <li>Upload target image (face to replace)</li>
         <li>Click "Swap Faces" button</li>
@@ -141,13 +133,12 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("### 📊 Features")
     st.markdown("- ✅ High-quality face detection")
-    st.markdown("- ✅ Multiple face support")
+    st.markdown("- ✅ Realistic face swapping")
     st.markdown("- ✅ Privacy-focused processing")
-    st.markdown("- ✅ Instant results")
-    st.markdown("- ✅ Free to use")
+    st.markdown("- ✅ Fast results")
     
     st.markdown("---")
-    st.caption("📄 MIT License | 🐙 GitHub + Streamlit Cloud")
+    st.caption("📄 MIT License | Powered by Replicate AI")
 
 # ================= MAIN CONTENT =================
 col1, col2 = st.columns(2)
@@ -162,7 +153,7 @@ with col1:
     )
     
     if source_file:
-        source_image = Image.open(source_file)
+        source_image = Image.open(source_file).convert('RGB')
         st.image(source_image, caption="Source Image", use_container_width=True)
         st.success(f"✅ Uploaded: {source_file.name}")
 
@@ -176,7 +167,7 @@ with col2:
     )
     
     if target_file:
-        target_image = Image.open(target_file)
+        target_image = Image.open(target_file).convert('RGB')
         st.image(target_image, caption="Target Image", use_container_width=True)
         st.success(f"✅ Uploaded: {target_file.name}")
 
@@ -191,7 +182,7 @@ if swap_btn:
     current_api_key = get_api_key()
     
     if not current_api_key:
-        st.error("❌ Please add your OpenRouter API Key in the sidebar first!")
+        st.error("❌ Please add your Replicate API Key in the sidebar first!")
     elif source_file is None or target_file is None:
         st.warning("⚠️ Please upload both source and target images!")
     else:
@@ -199,117 +190,109 @@ if swap_btn:
             try:
                 # Save images temporarily
                 with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as src_tmp:
-                    src_tmp.write(source_file.getvalue())
+                    source_image.save(src_tmp, format='JPEG')
                     src_path = src_tmp.name
                 
                 with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as tgt_tmp:
-                    tgt_tmp.write(target_file.getvalue())
+                    target_image.save(tgt_tmp, format='JPEG')
                     tgt_path = tgt_tmp.name
                 
-                # Call OpenRouter API for face swap guidance
-                headers = {
-                    "Authorization": f"Bearer {current_api_key}",
-                    "Content-Type": "application/json",
-                    "HTTP-Referer": "https://github.com/yourusername/ai-face-swap",
-                    "X-Title": "AI Face Swap"
-                }
+                # Set Replicate API token
+                os.environ["REPLICATE_API_TOKEN"] = current_api_key
                 
-                system_prompt = """You are an AI face swap assistant. Analyze the uploaded images and provide:
-                1. Face detection analysis
-                2. Quality assessment
-                3. Recommendations for best results
-                4. Step-by-step guidance for face swapping
+                # Choose model based on selection
+                if model_version == "inswapper_128":
+                    model_name = "roop-inswapper/inswapper_128:cdcf4910f92b38e3a6a98b70446f26b601a2593b0e5ce2a5203e5e24e646f307"
+                else:
+                    model_name = "batouresearch/simswap-256:84a16e34428a1e04f4310a14a2fcc2ae0b8f9b2b8c0e1e1f3c3e3e3e3e3e3e3e"
                 
-                Be helpful, technical but accessible."""
-                
-                payload = {
-                    "model": model,
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": f"Analyze these images for face swapping: Source: {source_file.name}, Target: {target_file.name}"}
-                    ],
-                    "max_tokens": 1000,
-                    "temperature": 0.3
-                }
-                
-                response = requests.post(
-                    "https://openrouter.ai/api/v1/chat/completions",
-                    headers=headers,
-                    json=payload,
-                    timeout=60
+                # Run face swap using Replicate
+                output = replicate.run(
+                    model_name,
+                    input={
+                        "source_image": open(src_path, "rb"),
+                        "target_image": open(tgt_path, "rb"),
+                        "face_index": 0,
+                        "face_weight": 1.0
+                    }
                 )
-                response.raise_for_status()
                 
-                analysis = response.json()['choices'][0]['message']['content']
-                
-                # Store result
-                st.session_state.swap_result = {
-                    "analysis": analysis,
-                    "success": True,
-                    "message": "Face swap analysis complete!"
-                }
+                # Output is typically a URL to the result image
+                if output:
+                    # Download the result image
+                    result_url = output if isinstance(output, str) else output[0]
+                    response = requests.get(result_url)
+                    result_image = Image.open(BytesIO(response.content))
+                    
+                    st.session_state.swap_result = {
+                        "image": result_image,
+                        "success": True,
+                        "message": "Face swap completed successfully!"
+                    }
+                    
+                    st.success("✅ Face swap completed!")
+                else:
+                    st.error("❌ No output received from the API")
                 
                 # Clean up temp files
                 os.unlink(src_path)
                 os.unlink(tgt_path)
                 
-            except requests.exceptions.Timeout:
-                st.error("⏱️ Timeout: API request took too long. Please try again.")
-            except requests.exceptions.HTTPError as e:
-                if response is not None and response.status_code == 401:
-                    st.error("🔑 Authentication failed. Check your OpenRouter API key.")
-                elif response is not None and response.status_code == 429:
-                    st.error("⚠️ Rate limit exceeded. Please wait and try again.")
-                else:
-                    st.error(f"❌ HTTP Error: {str(e)}")
+            except replicate.exceptions.ReplicateError as e:
+                st.error(f"❌ Replicate API Error: {str(e)}")
+                if "authentication" in str(e).lower():
+                    st.error("🔑 Please check your API key is correct")
             except Exception as e:
                 st.error(f"❌ Error: {str(e)}")
+                st.error("💡 Make sure you have a valid Replicate API key")
 
 # ================= DISPLAY RESULT =================
 if 'swap_result' in st.session_state and st.session_state.swap_result.get('success'):
     st.markdown("---")
-    st.markdown("### 🎉 Result")
+    st.markdown('<div class="success-box"><h3>🎉 Face Swap Complete!</h3><p>Your face swap has been processed successfully!</p></div>', unsafe_allow_html=True)
     
-    col1, col2 = st.columns(2)
+    # Display result
+    st.markdown("### 🎨 Result")
+    st.image(st.session_state.swap_result['image'], 
+             caption="Swapped Face Result", 
+             use_container_width=True,
+             output_format="PNG")
     
-    with col1:
-        st.markdown("#### 📊 AI Analysis")
-        st.info(st.session_state.swap_result['analysis'])
-    
-    with col2:
-        st.markdown("#### 💾 Download Options")
-        
-        # Create download button for original target (placeholder)
-        st.download_button(
-            label="📥 Download Target Image",
-            data=target_file.getvalue(),
-            file_name=f"target_{target_file.name}",
-            mime="image/jpeg",
-            use_container_width=True
-        )
-        
-        st.success("✅ Face swap processing complete!")
+    # Download button
+    result_bytes = image_to_bytes(st.session_state.swap_result['image'])
+    st.download_button(
+        label="📥 Download Swapped Image",
+        data=result_bytes,
+        file_name="face_swap_result.png",
+        mime="image/png",
+        use_container_width=True
+    )
     
     # Display comparison
     st.markdown("---")
-    st.markdown("### 📸 Image Comparison")
+    st.markdown("### 📸 Before & After Comparison")
     col1, col2, col3 = st.columns(3)
     
     with col1:
         st.image(source_image, caption="Source Face", use_container_width=True)
     
     with col2:
-        st.markdown("### ➡️")
+        st.markdown("### +")
     
     with col3:
         st.image(target_image, caption="Target Image", use_container_width=True)
+    
+    st.markdown("### ⬇️")
+    st.image(st.session_state.swap_result['image'], 
+             caption="Final Result", 
+             use_container_width=True)
 
 # ================= FOOTER =================
 st.markdown("---")
 st.markdown("""
 <div style="text-align: center; color: #666; padding: 20px;">
-    <p><strong>🔒 Privacy Notice:</strong> Images are processed temporarily and not stored on our servers.</p>
+    <p><strong>🔒 Privacy Notice:</strong> Images are processed securely and not stored permanently.</p>
     <p><strong>⚠️ Disclaimer:</strong> Use responsibly. Do not use for misleading or harmful purposes.</p>
-    <p>📄 MIT License | 🐙 <a href="https://github.com/yourusername/ai-face-swap">GitHub</a> | ☁️ Streamlit Cloud</p>
+    <p>📄 MIT License | ☁️ Powered by Replicate AI</p>
 </div>
 """, unsafe_allow_html=True)
