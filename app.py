@@ -62,11 +62,28 @@ st.markdown('<p class="subtitle">Swap faces in photos instantly using advanced A
 # ================= HELPER FUNCTIONS =================
 def get_api_key():
     """Retrieve API key from multiple sources"""
+    # Priority: Sidebar input > Secrets
     if st.session_state.get("replicate_api_key"):
-        return st.session_state.replicate_api_key
+        key = st.session_state.replicate_api_key.strip()
+        return key
     if st.secrets.get("REPLICATE_API_TOKEN"):
-        return st.secrets["REPLICATE_API_TOKEN"]
+        key = st.secrets["REPLICATE_API_TOKEN"].strip()
+        return key
     return None
+
+def test_api_key(api_key):
+    """Test if the API key is valid"""
+    headers = {
+        "Authorization": f"Token {api_key}",
+        "Content-Type": "application/json"
+    }
+    
+    response = requests.get("https://api.replicate.com/v1/account", headers=headers)
+    
+    if response.status_code == 200:
+        return True, response.json()
+    else:
+        return False, response.text
 
 def encode_image_to_base64(image_path):
     """Encode image file to base64 data URI"""
@@ -157,6 +174,23 @@ with st.sidebar:
     else:
         st.warning("⚠️ Please add your Replicate API Key")
     
+    # Debug: Show API key info
+    current_key = get_api_key()
+    if current_key:
+        st.info(f"🔍 Key starts with: `{current_key[:10]}...`")
+        st.info(f"🔍 Key length: {len(current_key)} chars")
+        
+        # Test API key button
+        if st.button("🔐 Test API Key"):
+            with st.spinner("Testing API key..."):
+                is_valid, result = test_api_key(current_key)
+                if is_valid:
+                    st.success("✅ API key is VALID!")
+                    st.json(result)
+                else:
+                    st.error("❌ API key is INVALID")
+                    st.error(f"Response: {result}")
+    
     st.markdown("---")
     
     # Info Box
@@ -172,13 +206,6 @@ with st.sidebar:
     </ol>
     </div>
     """, unsafe_allow_html=True)
-    
-    st.markdown("---")
-    st.markdown("### 📊 Features")
-    st.markdown("- ✅ High-quality face detection")
-    st.markdown("- ✅ Realistic face swapping")
-    st.markdown("- ✅ Privacy-focused processing")
-    st.markdown("- ✅ Fast results")
     
     st.markdown("---")
     st.caption("☁️ Powered by Replicate AI")
@@ -231,6 +258,13 @@ if swap_btn:
     else:
         with st.spinner("🔄 Processing face swap... This may take 30-60 seconds..."):
             try:
+                # Test API key first
+                is_valid, test_result = test_api_key(current_api_key)
+                if not is_valid:
+                    st.error("❌ API Key validation failed!")
+                    st.error(f"Details: {test_result}")
+                    st.stop()
+                
                 # Save images temporarily
                 with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as src_tmp:
                     source_image.save(src_tmp, format='JPEG')
