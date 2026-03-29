@@ -1,10 +1,6 @@
-# Core Streamlit
-streamlit
-
-# Image Processing
-Pillow
-numpy
-opencv-python-headless
-
-# API Requests
-requests
+streamlit==1.55.0
+replicate==0.37.0
+Pillow==10.2.0
+requests==2.33.0
+opencv-python==4.11.0
+numpy==1.26.4
