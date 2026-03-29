@@ -7,6 +7,9 @@ from PIL import Image
 import base64
 import requests
 
+# Get API key from Streamlit Cloud Secrets
+API_KEY = os.environ.get("OPENROUTER_API_KEY")
+
 # ================= CONFIGURATION =================
 st.set_page_config(
     page_title="AI Powered Face Swap",
