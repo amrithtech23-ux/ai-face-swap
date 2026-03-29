@@ -62,7 +62,7 @@ st.markdown('<p class="subtitle">Swap faces in photos instantly using advanced A
 # ================= HELPER FUNCTIONS =================
 def get_api_key():
     """Retrieve API key from multiple sources"""
-    # Priority: Sidebar input > Secrets
+    # Priority: Session State > Secrets
     if st.session_state.get("replicate_api_key"):
         key = st.session_state.replicate_api_key.strip()
         return key
@@ -94,7 +94,7 @@ def encode_image_to_base64(image_path):
         mime_type = "image/png"
     else:
         mime_type = "image/jpeg"
-    return f"data:{mime_type};base64,{encoded_string}"
+    return f"{mime_type};base64,{encoded_string}"
 
 def run_face_swap_api(source_path, target_path, api_key):
     """Call Replicate API directly using requests with proper file handling"""
@@ -154,28 +154,33 @@ def run_face_swap_api(source_path, target_path, api_key):
 with st.sidebar:
     st.markdown("### ⚙️ Settings")
     
-    # API Key Configuration
+    # Check if API key is already in secrets
     api_key_from_secrets = st.secrets.get("REPLICATE_API_TOKEN")
     
-    replicate_api_key = st.text_input(
-        "🔑 Replicate API Key",
-        type="password",
-        help="Get your API key from https://replicate.com/account/api-tokens",
-        key="replicate_api_key_input",
-        value=api_key_from_secrets if api_key_from_secrets else ""
-    )
-    
-    if replicate_api_key:
-        st.session_state.replicate_api_key = replicate_api_key
-        st.success("✅ API Key configured!")
-    elif api_key_from_secrets:
-        st.session_state.replicate_api_key = api_key_from_secrets
-        st.success("✅ API Key loaded from Secrets!")
+    if api_key_from_secrets:
+        # Key is configured in secrets - just show confirmation
+        st.success("✅ API Key configured from Secrets!")
+        st.info("🔐 Using secure API key from app settings")
+        
+        # Store it in session state
+        st.session_state.replicate_api_key = api_key_from_secrets.strip()
     else:
-        st.warning("⚠️ Please add your Replicate API Key")
+        # No secret configured - show input field
+        st.warning("⚠️ No API Key in Secrets")
+        
+        replicate_api_key = st.text_input(
+            "🔑 Replicate API Key",
+            type="password",
+            help="Get your API key from https://replicate.com/account/api-tokens",
+            key="replicate_api_key_input"
+        )
+        
+        if replicate_api_key:
+            st.session_state.replicate_api_key = replicate_api_key.strip()
+            st.success("✅ API Key configured!")
     
-    # Debug: Show API key info
-    current_key = get_api_key()
+    # Show debug info if key exists
+    current_key = st.session_state.get("replicate_api_key")
     if current_key:
         st.info(f"🔍 Key starts with: `{current_key[:10]}...`")
         st.info(f"🔍 Key length: {len(current_key)} chars")
@@ -206,6 +211,13 @@ with st.sidebar:
     </ol>
     </div>
     """, unsafe_allow_html=True)
+    
+    st.markdown("---")
+    st.markdown("### 📊 Features")
+    st.markdown("- ✅ High-quality face detection")
+    st.markdown("- ✅ Realistic face swapping")
+    st.markdown("- ✅ Privacy-focused processing")
+    st.markdown("- ✅ Fast results")
     
     st.markdown("---")
     st.caption("☁️ Powered by Replicate AI")
