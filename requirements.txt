@@ -1,18 +1,12 @@
 # Core Streamlit
 streamlit==1.32.0
 
-# Image Processing
+# Image Processing (Cloud-Compatible)
 Pillow==10.2.0
-opencv-python-headless==4.9.0.80
 numpy==1.26.3
 
 # API Requests
 requests==2.31.0
 
-# Face Detection (Optional - for local processing)
-# face-recognition==1.3.0
-# dlib==19.24.2
-# insightface==0.7.3
-
-# Utilities
-python-magic==0.4.27
+# OpenCV (Headless version for cloud)
+opencv-python-headless==4.9.0.80
