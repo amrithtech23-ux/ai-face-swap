@@ -95,59 +95,72 @@ def encode_image_to_base64(image_path):
     return f"data:{mime_type};base64,{encoded_string}"
 
 def run_face_swap_api(source_path, target_path, api_key):
-    """Call Replicate API with correct version format"""
+    """Call Replicate API using model endpoint (auto-selects latest version)"""
     
     headers = {
         "Authorization": f"Token {api_key}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "Prefer": "wait"  # Wait for completion
     }
     
     # Encode images to base64 data URIs
     source_uri = encode_image_to_base64(source_path)
     target_uri = encode_image_to_base64(target_path)
     
-    # Use specific model version (roop-inswapper)
-    # Full format: owner/model:version_hash
-    model_version = "roop-inswapper/inswapper_128:cdcf4910f92b38e3a6a98b70446f26b601a2593b0e5ce2a5203e5e24e646f307"
-    
-    # 1. Create the prediction with VERSION (not model)
+    # Use Replicate's model endpoint (automatically uses latest version)
+    # This is the NEW API format that doesn't require version hash
     payload = {
-        "version": model_version,
         "input": {
             "target_image": target_uri,
             "swap_image": source_uri
         }
     }
     
-    response = requests.post(
-        "https://api.replicate.com/v1/predictions",
-        headers=headers,
-        json=payload
-    )
+    # Try different working models
+    models_to_try = [
+        "lucataco/faceswap",
+        "batouresearch/simswap-256",
+        "philz1337/clarity-upscaler"  # Fallback
+    ]
     
-    if response.status_code != 201:
-        raise Exception(f"Failed to start prediction: {response.text}")
-        
-    prediction = response.json()
-    prediction_url = prediction["urls"]["get"]
+    for model_name in models_to_try:
+        try:
+            # Use the model endpoint directly (not version endpoint)
+            response = requests.post(
+                f"https://api.replicate.com/v1/models/{model_name}/predictions",
+                headers=headers,
+                json=payload
+            )
+            
+            if response.status_code == 201:
+                prediction = response.json()
+                
+                # If it's async, poll for results
+                if "urls" in prediction and "get" in prediction["urls"]:
+                    prediction_url = prediction["urls"]["get"]
+                    
+                    # Poll for results
+                    max_attempts = 30
+                    for attempt in range(max_attempts):
+                        time.sleep(2)
+                        response = requests.get(prediction_url, headers=headers)
+                        if response.status_code == 200:
+                            prediction = response.json()
+                            if prediction["status"] == "succeeded":
+                                return prediction["output"]
+                            elif prediction["status"] == "failed":
+                                raise Exception(f"Prediction failed: {prediction.get('error', 'Unknown error')}")
+                    
+                    raise Exception("Prediction timed out")
+                else:
+                    # Synchronous response
+                    return prediction.get("output")
+                    
+        except Exception as model_error:
+            print(f"Model {model_name} failed: {model_error}")
+            continue
     
-    # 2. Poll for results
-    max_attempts = 30
-    attempt = 0
-    while prediction["status"] not in ["succeeded", "failed", "canceled"] and attempt < max_attempts:
-        time.sleep(2)
-        attempt += 1
-        response = requests.get(prediction_url, headers=headers)
-        if response.status_code != 200:
-            raise Exception(f"Failed to check status: {response.text}")
-        prediction = response.json()
-    
-    if prediction["status"] == "succeeded":
-        return prediction["output"]
-    elif prediction["status"] == "failed":
-        raise Exception(f"Prediction failed: {prediction.get('error', 'Unknown error')}")
-    else:
-        raise Exception("Prediction was canceled or timed out")
+    raise Exception("All models failed. Please check your API key and credits.")
 
 # ================= SIDEBAR =================
 with st.sidebar:
@@ -306,6 +319,8 @@ if swap_btn:
                     st.error("🔑 Please check your API key is correct")
                 elif "credit" in str(e).lower():
                     st.error("💳 Insufficient credits. Please add credits to your Replicate account.")
+                elif "permission" in str(e).lower():
+                    st.error("🔧 You don't have permission to use this model. Try adding credits or using a different model.")
 
 # ================= DISPLAY RESULT =================
 if 'swap_result' in st.session_state and st.session_state.swap_result.get('success'):
