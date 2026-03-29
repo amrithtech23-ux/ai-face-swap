@@ -8,7 +8,7 @@ import base64
 import requests
 
 # Get API key from Streamlit Cloud Secrets
-API_KEY = st.secrets.get("OPENROUTER_API_KEY")
+API_KEY = os.environ.get("OPENROUTER_API_KEY")
 
 # ================= CONFIGURATION =================
 st.set_page_config(
